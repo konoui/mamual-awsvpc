@@ -1,0 +1,50 @@
+Parameters:
+  AMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  VPC:
+    Type: AWS::EC2::VPC::Id
+  Subnet:
+    Type: AWS::EC2::Subnet::Id
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  EC2SecurityGroup:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  InstanceType:
+    Type: String
+    Default: m5.xlarge
+Resources:
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref Subnet
+      ImageId: !Ref AMI
+      SecurityGroupIds: !Ref EC2SecurityGroup
+      EbsOptimized: true
+      UserData:
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash
+            yum install -y git jq
+            amazon-linux-extras install -y docker
+            systemctl enable docker
+            systemctl start  docker
+            usermod -a -G docker ec2-user
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region}
+      BlockDeviceMappings:
+      - DeviceName: /dev/xvda
+        Ebs:
+          VolumeSize: 100
+          VolumeType: io1
+          Iops: 5000
+      Tags: 
+      - Key: Name
+        Value: !Ref AWS::StackName
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+        Count: 1
+

@@ -16,7 +16,7 @@ cidr2mask() {
   local i mask=""
   local full_octets=$(($1/8))
   local partial_octet=$(($1%8))
- 
+
   for ((i=0;i<4;i+=1)); do
     if [ $i -lt $full_octets ]; then
       mask+=255
@@ -27,7 +27,7 @@ cidr2mask() {
     fi
     test $i -lt 3 && mask+=.
   done
- 
+
   echo $mask
 }
 
@@ -103,7 +103,7 @@ get_primary_ip_address () {
 hack_pause_network_namespace () {
     readonly PAUSE_NETNS="${PAUSE_CONTAINER_ID:0:12}-pause-container-ns"
     readonly PAUSE_PID=$(docker inspect ${PAUSE_CONTAINER_ID} --format '{{.State.Pid}}')
-    # create symbolic link to /var/run/netns/ as we should manage the pause container namespace by ip command    
+    # create symbolic link to /var/run/netns/ as we should manage the pause container namespace by ip command
     # see http://man7.org/linux/man-pages/man8/ip-netns.8.html
     sudo mkdir -p /var/run/netns
     sudo ln -s /proc/${PAUSE_PID}/ns/net /var/run/netns/${PAUSE_NETNS}
@@ -113,9 +113,9 @@ hack_pause_network_namespace () {
 
 move_eni_to_pause_network_namespace () {
     readonly DEVICE_NAME_ON_PAUSE_NETNS=eth1
-    # rename device name eth<N> to eth1 on pause netns
-    ip netns exec hoge ip link set ${DEVICE_NAME} name ${DEVICE_NAME_ON_PAUSE_NETNS}
     sudo ip link set ${DEVICE_NAME} netns ${PAUSE_PID}
+    # rename device name eth<N> to eth1 on pause netns
+    sudo ip netns exec ${PAUSE_NETNS} ip link set ${DEVICE_NAME} name ${DEVICE_NAME_ON_PAUSE_NETNS}
     sudo ip netns exec ${PAUSE_NETNS} ip link set ${DEVICE_NAME_ON_PAUSE_NETNS} up
     echo device name on pause netns: 
     sudo ip netns exec ${PAUSE_NETNS} ip link show | grep -o ${DEVICE_NAME_ON_PAUSE_NETNS}
@@ -140,6 +140,51 @@ into_pause_network_namespace () {
     sudo ip netns exec ${PAUSE_NETNS} bash
 }
 
+
+## 2. Plugin to establish route to ECS Agent for Credentials
+VE_EN1="ve-en1"
+VE_BR_EN1="ve_br_en1"
+ECS_ENI_BR="ecs-eni-br"
+
+### i. ECS Agent determines an available local IP Address from 169.254.0.0/16 (This will be narrowed down to a /22 or /23 before implementation)
+determine_local_ip_address () {
+    NIKONI=168.252
+}
+
+### ii. Create the ecs-eni bridge if needed
+create_ecs_eni_bridge () {
+    # NOTE: ecs-agent create automatically
+    sudo ip link add ${ECS_ENI_BR} type bridge
+    sudo ip addr add 169.254.170.2/22 dev ${ECS_ENI_BR}
+    return
+}
+
+### iii. Create a pair of veth devices
+create_veth_pair () {
+    # create veth pair. container namespace is ve-en1, bridge namespace is ve_br_eni1
+    sudo ip link add ${VE_BR_EN1} type veth peer name ${VE_EN1}
+}
+
+### vi. Assign one end of veth interface to the ecs-eni bridge
+assign_veth_to_bridge () {
+    # connect ve_br_en1 to ecs-eni-br bridge
+    sudo ip link set ${VE_BR_EN1} dev ${ECS_ENI_BR}
+}
+
+### v. Assign the local IP address to the other end of the veth interface and move it to the container's namespace
+assgin_local_ip_to_veth_and_move_pause_container_network_namespace () {
+    sudo ip link set ${VE_EN1} netns ${PAUSE_PID}
+    sudo ip link set dev ${ECS_ENI_BR} up
+    sudo ip netns exec ${PAUSE_NETNS} ip link set dev ${VE_EN1} up
+    sudo ip netns exec ${PAUSE_NETNS} ip address add 169.254.${NIKONI}/22 dev ${VE_EN1}
+}
+
+### vi. Create a route to 169.254.170.2 in container's namespace to via the veth interface
+create_route_to_veth_bridge () {
+    sudo ip netns exec ${PAUSE_NETNS} ip route add 169.254.0.0/22 via 169.254.170.2 dev ${VE_EN1}
+}
+
+
 assign_eni_to_pause_netns () {
     get_mac_address_from_metadata
     get_device_name_by_mac_address
@@ -149,12 +194,25 @@ assign_eni_to_pause_netns () {
     move_eni_to_pause_network_namespace
     reassign_primary_ip_address_to_eni
     setup_route
+    echo "success!"
+}
+
+establish_route_ecs_agent () {
+    determine_local_ip_address
+    create_ecs_eni_bridge
+    create_veth_pair
+    assign_veth_to_bridge
+    assgin_local_ip_to_veth_and_move_pause_container_network_namespace
+    create_route_to_veth_bridge
+    echo "success!!"
 }
 
 main () {
     prepare_task_eni
+    sleep 10
     run_pause_container
     assign_eni_to_pause_netns
+    establish_route_ecs_agent
 }
 
 main

@@ -22,6 +22,7 @@ Resources:
       SubnetId: !Ref Subnet
       ImageId: !Ref AMI
       SecurityGroupIds: !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
       EbsOptimized: true
       UserData:
         Fn::Base64: 
@@ -48,3 +49,23 @@ Resources:
         Timeout: PT10M
         Count: 1
 
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/PowerUserAccess
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+      - !Ref EC2Role

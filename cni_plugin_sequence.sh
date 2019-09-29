@@ -155,7 +155,7 @@ determine_local_ip_address () {
 create_ecs_eni_bridge () {
     # NOTE: ecs-agent create automatically
     sudo ip link add ${ECS_ENI_BR} type bridge
-    sudo ip addr add 169.254.170.2/22 dev ${ECS_ENI_BR}
+    sudo ip addr add 169.254.170.1/22 dev ${ECS_ENI_BR}
     return
 }
 
@@ -168,20 +168,21 @@ create_veth_pair () {
 ### vi. Assign one end of veth interface to the ecs-eni bridge
 assign_veth_to_bridge () {
     # connect ve_br_en1 to ecs-eni-br bridge
-    sudo ip link set ${VE_BR_EN1} dev ${ECS_ENI_BR}
+    sudo ip link set ${VE_BR_EN1} master ${ECS_ENI_BR}
 }
 
 ### v. Assign the local IP address to the other end of the veth interface and move it to the container's namespace
 assgin_local_ip_to_veth_and_move_pause_container_network_namespace () {
     sudo ip link set ${VE_EN1} netns ${PAUSE_PID}
     sudo ip link set dev ${ECS_ENI_BR} up
+    sudo ip link set dev ${VE_BR_EN1} up
     sudo ip netns exec ${PAUSE_NETNS} ip link set dev ${VE_EN1} up
-    sudo ip netns exec ${PAUSE_NETNS} ip address add 169.254.${NIKONI}/22 dev ${VE_EN1}
+    sudo ip netns exec ${PAUSE_NETNS} ip address add 169.254.170.2/22 dev ${VE_EN1}
 }
 
 ### vi. Create a route to 169.254.170.2 in container's namespace to via the veth interface
 create_route_to_veth_bridge () {
-    sudo ip netns exec ${PAUSE_NETNS} ip route add 169.254.0.0/22 via 169.254.170.2 dev ${VE_EN1}
+    sudo ip netns exec ${PAUSE_NETNS} ip route add 169.254.0.0/22 via 169.254.170.1 dev ${VE_EN1}
 }
 
 

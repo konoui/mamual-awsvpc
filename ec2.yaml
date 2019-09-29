@@ -35,12 +35,6 @@ Resources:
             usermod -a -G docker ec2-user
             yum install -y aws-cfn-bootstrap
             /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region}
-      BlockDeviceMappings:
-      - DeviceName: /dev/xvda
-        Ebs:
-          VolumeSize: 100
-          VolumeType: io1
-          Iops: 5000
       Tags: 
       - Key: Name
         Value: !Ref AWS::StackName
